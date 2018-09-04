@@ -15,4 +15,6 @@ Flask 开发训练
 数据模型：models.py
 表单处理：admin/forms.py  
 模板目录：templates/admin
-静态目录：static
+静态目录：static  
+
+# 测试

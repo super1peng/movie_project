@@ -1,10 +1,18 @@
 #coding:utf-8
 
-
+from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
 from flask import Flask,render_template
 
+import pymysql
+
 app = Flask(__name__)
+app.config["SQLALCHEMY_DATABASE_URI"] = "mysql+pymysql://root:123lxp@127.0.0.1:3306/movie?charset=utf8"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = True
+app.config["SECRET_KEY"] = "4ae74f782f024748b71d33135d44a87a"
+
 app.debug = True
+db = SQLAlchemy(app)
 
 # 注册蓝图
 from app.home import home as home_blueprint

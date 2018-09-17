@@ -1,17 +1,7 @@
 #coding:utf-8
-
-
-from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+from app import db
 
-import pymysql
-
-app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = "mysql+pymysql://root:123lxp@127.0.0.1:3306/movie?charset=utf8"
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = True
-
-db = SQLAlchemy(app)
 
 #会员
 class User(db.Model):
@@ -33,6 +23,7 @@ class User(db.Model):
 
     def __repr__(self):
         return '<User %r>' % self.name
+
 
 # 会员登录日志
 class Userlog(db.Model):
@@ -166,6 +157,10 @@ class Admin(db.Model):
     def __repr__(self):
         return '<Admin %r>' % self.name
 
+    def check_pwd(self,pwd):
+        from werkzeug.security import check_password_hash
+        return check_password_hash(self.pwd, pwd)
+
 # 管理员登录日志
 class Adminlog(db.Model):
     __tablename__ = "adminlog"
@@ -191,23 +186,23 @@ class Oplog(db.Model):
         return '<Oplog %r>' % self.id
 
 
-if __name__ == '__main__':
-    # db.create_all()
-    #
-    # role = Role(
-    #     name = "超级管理员",
-    #     auths = "",
-    # )
-    # db.session.add(role)
-    # db.session.commit()
-
-    from werkzeug.security import generate_password_hash
-
-    admin = Admin(
-        name='imooc管理员2',
-        pwd = generate_password_hash('imooc管理员2'),
-        is_super = 0,
-        role_id = 1.
-    )
-    db.session.add(admin)
-    db.session.commit()
+# if __name__ == '__main__':
+#     # db.create_all()
+#     #
+#     # role = Role(
+#     #     name = "超级管理员",
+#     #     auths = "",
+#     # )
+#     # db.session.add(role)
+#     # db.session.commit()
+#
+#     from werkzeug.security import generate_password_hash
+#
+#     admin = Admin(
+#         name='imooc管理员2',
+#         pwd = generate_password_hash('imooc管理员2'),
+#         is_super = 0,
+#         role_id = 1.
+#     )
+#     db.session.add(admin)
+#     db.session.commit()

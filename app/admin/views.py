@@ -3,14 +3,22 @@
 # 调用蓝图
 from . import admin
 from flask import render_template, redirect, url_for, flash, session, request
-from app.admin.forms import LoginForm, TagForm, MovieForm, PreviewForm  # 导入表单
-from app.models import Admin, Tag, Movie, Preview, User, Comment, Moviecol
+from app.admin.forms import LoginForm, TagForm, MovieForm, PreviewForm, PwdForm, AuthForm , RoleForm  # 导入表单
+from app.models import Admin, Tag, Movie, Preview, User, Comment, Moviecol, Oplog, Adminlog, Userlog, Auth, Role
 from functools import wraps
 from app import db, app
 from werkzeug.utils import secure_filename
 import os
 import uuid
 import datetime
+
+# 上下文应用处理器
+@admin.context_processor
+def tpl_extra():
+    data = dict(
+        online_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    )
+    return data
 
 def admin_login_req(f):
     @wraps(f)
@@ -39,9 +47,18 @@ def login():
         data = form.data
         admin = Admin.query.filter_by(name=data["account"]).first()
         if not admin.check_pwd(data["pwd"]):
-            flash("密码错误")
+            flash("密码错误","err")
             return redirect(url_for('admin.login'))
         session["admin"] = data["account"]
+        session["admin_id"] = admin.id
+
+        adminlog = Adminlog(
+            admin_id = admin.id,
+            ip = request.remote_addr,
+        )
+        db.session.add(adminlog)
+        db.session.commit()
+
         return redirect(url_for("admin.index") or request.args.get("next"))
     return render_template("admin/login.html", form=form)
 
@@ -49,12 +66,26 @@ def login():
 @admin_login_req
 def logout():
     session.pop("admin", None)
+    session.pop("admin_id", None)
     return redirect(url_for("admin.login"))
 
-@admin.route("/pwd/")
+# 修改密码
+@admin.route("/pwd/",methods=["GET","POST"])
 @admin_login_req
 def pwd():
-    return render_template("admin/pwd.html")
+    form = PwdForm()
+    print(1)
+    if form.validate_on_submit():
+        data = form.data
+        print(2)
+        admin = Admin.query.filter_by(name=session["admin"]).first()
+        from werkzeug.security import generate_password_hash
+        admin.pwd = generate_password_hash(data["new_pwd"])
+        db.session.add(admin)
+        db.session.commit()
+        flash("修改密码成功,请重新登录","ok")
+        return redirect(url_for("admin.logout"))
+    return render_template("admin/pwd.html",form=form)
 
 # 添加标签
 @admin.route("/tag/add/", methods=['POST','GET'])
@@ -73,6 +104,13 @@ def tag_add():
         db.session.add(tag)
         db.session.commit()
         flash("添加标签成功！","ok")
+        oplog = Oplog(
+            admin_id=session["admin_id"],
+            ip=request.remote_addr,
+            reason="添加标签%s" % data["name"]
+        )
+        db.session.add(oplog)
+        db.session.commit()
         return redirect(url_for('admin.tag_add'))
 
     return render_template("admin/tag_add.html", form= form)
@@ -376,44 +414,161 @@ def moviecol_del(id=None):
 
 # 日志管理
 # 操作日志
-@admin.route("/oplog/list/")
+@admin.route("/oplog/list/<int:page>", methods=["GET"])
 @admin_login_req
-def oplog_list():
-    return render_template("admin/oplog_list.html")
+def oplog_list(page=None):
+    if page is None:
+        page = 1
+    page_data = Oplog.query.join(
+        Admin
+    ).filter(
+        Admin.id == Oplog.admin_id,
+    ).order_by(
+        Oplog.addtime.desc()
+    ).paginate(page=page, per_page=5)
+    return render_template("admin/oplog_list.html", page_data=page_data)
 
 # 登录日志
-@admin.route("/adminloginlog/list/")
+@admin.route("/adminloginlog/list/<int:page>", methods=["GET"])
 @admin_login_req
-def adminloginlog_list():
-    return render_template("admin/adminloginlog_list.html")
+def adminloginlog_list(page=None):
+    if page is None:
+        page = 1
+    page_data = Adminlog.query.join(
+        Admin
+    ).filter(
+        Admin.id == Adminlog.admin_id,
+    ).order_by(
+        Adminlog.addtime.desc()
+    ).paginate(page=page, per_page=5)
+    return render_template("admin/adminloginlog_list.html",page_data=page_data)
 
 # 会员登录日志
-@admin.route("/userloginlog/list/")
+@admin.route("/userloginlog/list/<int:page>/" ,methods=["GET"])
 @admin_login_req
-def userloginlog_list():
-    return render_template("admin/userloginlog_list.html")
+def userloginlog_list(page=None):
+    if page is None:
+        page = 1
+    page_data = Userlog.query.join(
+        User
+    ).filter(
+        User.id == Userlog.user_id,
+    ).order_by(
+        Userlog.addtime.desc()
+    ).paginate(page=page, per_page=5)
+    return render_template("admin/userloginlog_list.html",page_data=page_data)
 
-# 添加角色列表
-@admin.route("/role/add/")
+# 添加角色
+@admin.route("/role/add/", methods=["GET","POST"])
 @admin_login_req
 def role_add():
-    return render_template("admin/role_add.html")
+    form = RoleForm()
+    if form.validate_on_submit():
+        data = form.data
+        role = Role(
+            name= data["name"],
+            auths = ",".join(map( lambda v:str(v), data["auths"]))
+        )
+        db.session.add(role)
+        db.session.commit()
+        flash("添加角色成功！","ok")
+    return render_template("admin/role_add.html", form=form)
 
-@admin.route("/role/list/")
+# 角色列表
+@admin.route("/role/list/<int:page>/", methods=["GET"])
 @admin_login_req
-def role_list():
-    return render_template("admin/role_list.html")
+def role_list(page=None):
+    if page is None:
+        page = 1
+    page_data = Role.query.order_by(
+        Role.addtime.desc()
+    ).paginate(page=page, per_page=5)
+    return render_template("admin/role_list.html", page_data=page_data)
 
-# 权限
-@admin.route("/auth/add/")
+# 删除角色
+@admin.route("/role/del/<int:id>/", methods=['GET'])
+@admin_login_req
+def role_del(id=None):
+    role = Role.query.filter_by(id=id).first_or_404()
+    db.session.delete(role)
+    db.session.commit()
+    flash("删除角色成功", "ok")
+    return redirect(url_for("admin.role_list", page=1))
+
+#编辑角色
+@admin.route("/role/edit/<int:id>/", methods=['POST','GET'])
+@admin_login_req
+def role_edit(id=None):
+    form = RoleForm()
+    role = Role.query.get_or_404(id)
+    if request.method == "GET":
+        form.auths.data = list(map(lambda v:int(v), role.auths.split(",")))
+    if form.validate_on_submit():
+        data = form.data
+        role.name = data["name"]
+        role.auths = ",".join(map( lambda v:str(v), data["auths"]))
+        db.session.add(role)
+        db.session.commit()
+        flash("修改角色成功！","ok")
+        redirect(url_for('admin.role_edit', id=id))
+
+    return render_template("admin/role_edit.html", form= form, role=role)
+
+# 权限添加
+@admin.route("/auth/add/", methods=["POST","GET"])
 @admin_login_req
 def auth_add():
-    return render_template("admin/auth_add.html")
+    form = AuthForm()
+    if form.validate_on_submit():
+        data = form.data
+        auth = Auth(
+            name=data["name"],
+            url=data["url"]
+        )
+        db.session.add(auth)
+        db.session.commit()
+        flash("添加权限成功！","ok")
+    return render_template("admin/auth_add.html", form=form)
 
-@admin.route("/auth/list/")
+# 权限列表
+@admin.route("/auth/list/<int:page>/", methods=['GET'])
 @admin_login_req
-def auth_list():
-    return render_template("admin/auth_list.html")
+def auth_list(page=None):
+    # 进行标签查询和分页显示
+    if page is None:
+        page = 1
+    page_data = Auth.query.order_by(
+        Auth.addtime.desc()
+    ).paginate(page=page, per_page=10)
+    return render_template("admin/auth_list.html", page_data=page_data)
+
+# 权限删除
+@admin.route("/auth/del/<int:id>/", methods=['GET'])
+@admin_login_req
+def auth_del(id=None):
+    auth = Auth.query.filter_by(id=id).first_or_404()
+    db.session.delete(auth)
+    db.session.commit()
+    flash("删除权限成功", "ok")
+    return redirect(url_for("admin.auth_list", page=1))
+
+#编辑标签
+@admin.route("/auth/edit/<int:id>/", methods=['POST','GET'])
+@admin_login_req
+def auth_edit(id):
+    form = AuthForm()
+    auth = Auth.query.get_or_404(id)
+    if form.validate_on_submit():
+        data = form.data
+        auth.url = data["url"]
+        auth.name = data["name"]
+        db.session.add(auth)
+        db.session.commit()
+        flash("修改权限成功！","ok")
+        redirect(url_for('admin.auth_edit', id=id))
+
+    return render_template("admin/auth_edit.html", form= form, auth=auth)
+
 
 # 管理员
 @admin.route("/admin/add/")

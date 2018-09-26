@@ -2,8 +2,8 @@
 
 # 调用蓝图
 from . import admin
-from flask import render_template, redirect, url_for, flash, session, request
-from app.admin.forms import LoginForm, TagForm, MovieForm, PreviewForm, PwdForm, AuthForm , RoleForm  # 导入表单
+from flask import render_template, redirect, url_for, flash, session, request, abort
+from app.admin.forms import LoginForm, TagForm, MovieForm, PreviewForm, PwdForm, AuthForm , RoleForm, AdminForm  # 导入表单
 from app.models import Admin, Tag, Movie, Preview, User, Comment, Moviecol, Oplog, Adminlog, Userlog, Auth, Role
 from functools import wraps
 from app import db, app
@@ -20,11 +20,33 @@ def tpl_extra():
     )
     return data
 
+# 登录装饰器
 def admin_login_req(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if "admin" not in session:
             return redirect(url_for("admin.login", next=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
+
+# 权限控制装饰器
+def admin_auth(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        admin = Admin.query.join(
+            Role
+        ).filter(
+            Role.id == Admin.role_id,
+            Admin.id == session["admin_id"]
+        ).first()
+        auths = admin.role.auths
+        print("auths",auths)
+        auths = list(map( lambda v: int(v), auths.split(",")))
+        auth_list = Auth.query.all()
+        urls = [v.url for v in auth_list for val in auths if val == v.id]
+        rule = request.url_rule
+        if str(rule) not in urls:
+            abort(404)
         return f(*args, **kwargs)
     return decorated_function
 
@@ -36,6 +58,7 @@ def change_filename(filename):
 
 @admin.route("/")
 @admin_login_req
+# @admin_auth
 def index():
     return render_template('admin/index.html')
 
@@ -74,10 +97,8 @@ def logout():
 @admin_login_req
 def pwd():
     form = PwdForm()
-    print(1)
     if form.validate_on_submit():
         data = form.data
-        print(2)
         admin = Admin.query.filter_by(name=session["admin"]).first()
         from werkzeug.security import generate_password_hash
         admin.pwd = generate_password_hash(data["new_pwd"])
@@ -571,12 +592,34 @@ def auth_edit(id):
 
 
 # 管理员
-@admin.route("/admin/add/")
+# 添加管理员
+@admin.route("/admin/add/", methods=['GET','POST'])
 @admin_login_req
 def admin_add():
-    return render_template("admin/admin_add.html")
+    form = AdminForm()
+    from werkzeug.security import generate_password_hash
+    if form.validate_on_submit():
+        data = form.data
+        admin = Admin(
+            name=data["name"],
+            pwd=generate_password_hash(data["pwd"]),
+            role_id=data["role_id"]
+        )
+        db.session.add(admin)
+        db.session.commit()
+        flash("添加管理员成功！", "ok")
+    return render_template("admin/admin_add.html", form=form)
 
-@admin.route("/admin/list/")
+@admin.route("/admin/list/<int:page>", methods=["GET"])
 @admin_login_req
-def admin_list():
-    return render_template("admin/admin_list.html")
+def admin_list(page=None):
+    if page is None:
+        page = 1
+    page_data = Admin.query.join(
+        Role
+    ).filter(
+        Role.id == Admin.role_id
+    ).order_by(
+        Admin.addtime.desc()
+    ).paginate(page=page, per_page=5)
+    return render_template("admin/admin_list.html", page_data=page_data)

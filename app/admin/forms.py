@@ -6,11 +6,13 @@ from flask_wtf import FlaskForm
 
 #字符串字段、密码字段、提交字段
 from wtforms import StringField, PasswordField, SubmitField, FileField, TextAreaField, SelectField, SelectMultipleField
-from wtforms.validators import  DataRequired, ValidationError
-from app.models import Admin, Tag, Auth
+from wtforms.validators import  DataRequired, ValidationError, EqualTo
+from app.models import Admin, Tag, Auth, Role
+
 
 auth_list = Auth.query.all()
 tags = Tag.query.all() # 这里有个bug 添加完 标签之后需要重新启动服务器才能在电影编辑界面看到新的标签
+role_list = Role.query.all()
 
 class LoginForm(FlaskForm):
     '''
@@ -326,6 +328,66 @@ class RoleForm(FlaskForm):
 
     submit = SubmitField(
         label='编辑',
+        render_kw={
+            "class": "btn btn-primary",
+        }
+    )
+
+class AdminForm(FlaskForm):
+    name = StringField(
+        label="管理员名称",
+        validators=[
+            DataRequired("请输入管理员名称！")
+        ],
+        description="管理员名称",
+        render_kw={
+            "class": "form-control",
+            "placeholder": "请输入管理员名称!",
+            # "required":"required"
+        }
+    )
+
+    # 密码
+    pwd = PasswordField(
+        label="管理员密码",
+        validators=[
+            DataRequired("请输入管理员密码")
+        ],
+        description="管理员密码",
+        render_kw={
+            "class": "form-control",
+            "placeholder": "请输入管理员密码!",
+            # "required": "required"
+        }
+    )
+
+    # 重复密码
+    repwd = PasswordField(
+        label="管理员重复密码",
+        validators=[
+            DataRequired("请输入管理员重复密码"),
+            EqualTo("pwd", message="两次密码不一致！"),
+        ],
+        description="管理员重复密码",
+        render_kw={
+            "class": "form-control",
+            "placeholder": "请输入管理员重复密码!",
+            # "required": "required"
+        }
+    )
+
+    role_id = SelectField(
+        label="所属角色",
+        coerce=int,
+        choices=[(v.id, v.name) for v in role_list],
+        render_kw={
+            "class":"form-control",
+        }
+    )
+
+    # 提交按钮
+    submit = SubmitField(
+        label="编辑",
         render_kw={
             "class": "btn btn-primary",
         }
